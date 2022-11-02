@@ -92,6 +92,7 @@ class TelnetConnection:
         self._prompt_string = None
         self._io_lock = asyncio.Lock()
         self._linebreak = None
+        self._cmd_counter = 0
 
     async def async_run_command(self, command, first_try=True):
         """Run a command through a Telnet connection. If first_try is True a second
@@ -129,6 +130,12 @@ class TelnetConnection:
         if need_retry:
             _LOGGER.debug("Trying one more time")
             return await self.async_run_command(command, False)
+
+        self._cmd_counter += 1
+        if self._cmd_counter >= 1000:
+            # We need to reconnect every 1000 commands
+            self.disconnect()
+            self._cmd_counter = 0
 
         # Let's process the received data
         data = data[0:-(len(self._prompt_string))].split(b"\n")
