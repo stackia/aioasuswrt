@@ -33,6 +33,8 @@ _WL_CMD = (
 _WL_REGEX = re.compile(r"\w+\s" r"(?P<mac>(([0-9A-F]{2}[:-]){5}([0-9A-F]{2})))")
 
 _CLIENTLIST_CMD = 'cat /tmp/clientlist.json'
+_WIRED_CLIENTLIST_CMD = 'cat /tmp/wiredclientlist.json'
+_WIRELESS_CLIENT_LIST_CMD = 'cat /tmp/allwclientlist.json'
 
 _NVRAM_CMD = "nvram show"
 
@@ -365,25 +367,53 @@ class AsusWrt:
         return devices
 
     async def async_get_clients(self):
-        """Filter devices list using 'clientlist.json' files if available"""
-        lines = await self.connection.async_run_command(_CLIENTLIST_CMD)
-        if not lines:
-            return {}
+        """Get devices list using 'clientlist.json' files"""
+        wired_lines = await self.connection.async_run_command(_WIRED_CLIENTLIST_CMD)
+        wired_dev_list = {}
+        if wired_lines:
+            try:
+                wired_dev_list = json.loads(wired_lines[0])
+            except (TypeError, ValueError):
+                pass
 
-        try:
-            dev_list = json.loads(lines[0])
-        except (TypeError, ValueError):
-            return {}
+        wireless_lines = await self.connection.async_run_command(_WIRELESS_CLIENT_LIST_CMD)
+        wireless_dev_list = {}
+        if wireless_lines:
+            try:
+                wireless_dev_list = json.loads(wireless_lines[0])
+            except (TypeError, ValueError):
+                pass
+
+        clientlist_lines = await self.connection.async_run_command(_CLIENTLIST_CMD)
+        clientlist_dev_list = {}
+        if clientlist_lines:
+            try:
+                clientlist_dev_list = json.loads(clientlist_lines[0])
+            except (TypeError, ValueError):
+                pass
+
+        macs = set()
+        for mac, dev_list in wired_dev_list.items():
+            macs.add(mac)
+            macs.update(dev_list.keys())
+        for mac, conn_list in wireless_dev_list.items():
+            macs.add(mac)
+            for dev_list in conn_list.values():
+                macs.update(dev_list.keys())
+
+        device_details = {}
+        # parse client list
+        for if_mac in clientlist_dev_list.values():
+            for conn_items in if_mac.values():
+                device_details.update(conn_items)
 
         devices = {}
-        # parse client list
-        for if_mac in dev_list.values():
-            for _, conn_items in if_mac.items():
-                for mac, conn in conn_items.items():
-                    ip = conn.get("ip", None)
-                    if not ip:
-                        ip = None
-                    devices[mac] = Device(mac, ip, None, conn.get("rssi", None))
+        for mac in macs:
+            dev = device_details.get(mac, {})
+            ip = dev.get("ip", None)
+            if not ip:
+                ip = None
+            devices[mac] = Device(mac, ip, None, dev.get("rssi", None))
         return devices
 
     async def async_get_connected_devices(self, use_cache=True):
