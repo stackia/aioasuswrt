@@ -445,8 +445,6 @@ class AsusWrt:
             return self._latest_transfer_data
 
         time_diff = now - self._latest_transfer_check
-        if time_diff.total_seconds() < 30:
-            return self._latest_transfer_data
 
         if data[0] < self._rx_latest:
             rx = data[0]
