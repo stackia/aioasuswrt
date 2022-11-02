@@ -211,7 +211,7 @@ GET_LIST = {
     "LABEL_MAC": ["label_mac"],
 }
 
-Device = namedtuple("Device", ["mac", "ip", "name"])
+Device = namedtuple("Device", ["mac", "ip", "name", "rssi"])
 
 
 async def _parse_lines(lines, regex):
@@ -364,50 +364,26 @@ class AsusWrt:
                 devices[mac] = Device(mac, device["ip"], None)
         return devices
 
-    async def async_filter_dev_list(self, cur_devices):
+    async def async_get_clients(self):
         """Filter devices list using 'clientlist.json' files if available"""
         lines = await self.connection.async_run_command(_CLIENTLIST_CMD)
         if not lines:
-            return cur_devices
+            return {}
 
         try:
             dev_list = json.loads(lines[0])
         except (TypeError, ValueError):
-            return cur_devices
+            return {}
 
         devices = {}
-        list_wired = {}
         # parse client list
         for if_mac in dev_list.values():
-            for conn_type, conn_items in if_mac.items():
-                if conn_type == "wired_mac":
-                    list_wired.update(conn_items)
-                    continue
-                for dev_mac in conn_items:
-                    mac = dev_mac.upper()
-                    if mac in cur_devices:
-                        devices[mac] = cur_devices[mac]
-
-        # Delay 180 seconds removal of previously detected wired devices.
-        # This is to avoid continuous add and remove in some circumstance
-        # with devices connected via additional hub.
-        cur_time = datetime.utcnow()
-        for dev_mac, dev_data in list_wired.items():
-            if dev_data.get("ip"):
-                mac = dev_mac.upper()
-                self._list_wired[mac] = cur_time
-
-        pop_list = []
-        for dev_mac, last_seen in self._list_wired.items():
-            if (cur_time - last_seen).total_seconds() <= 180:
-                if dev_mac in cur_devices:
-                    devices[dev_mac] = cur_devices[dev_mac]
-            else:
-                pop_list.append(dev_mac)
-
-        for mac in pop_list:
-            self._list_wired.pop(mac)
-
+            for _, conn_items in if_mac.items():
+                for mac, conn in conn_items.items():
+                    ip = conn.get("ip", None)
+                    if not ip:
+                        ip = None
+                    devices[mac] = Device(mac, ip, None, conn.get("rssi", None))
         return devices
 
     async def async_get_connected_devices(self, use_cache=True):
@@ -424,27 +400,11 @@ class AsusWrt:
         ):
             return self._devices_cache
 
-        devices = {}
-        dev = await self.async_get_wl()
-        devices.update(dev)
-        dev = await self.async_get_arp()
-        devices.update(dev)
-        dev = await self.async_get_neigh(devices)
-        devices.update(dev)
-        if not self.mode == "ap":
-            dev = await self.async_get_leases(devices)
-            devices.update(dev)
+        devices = await self.async_get_clients()
 
-        filter_devices = await self.async_filter_dev_list(devices)
-        ret_devices = {
-            key: dev
-            for key, dev in filter_devices.items()
-            if not self.require_ip or dev.ip is not None
-        }
-
-        self._devices_cache = ret_devices
+        self._devices_cache = devices
         self._dev_cache_timer = now
-        return ret_devices
+        return devices
 
     async def async_get_bytes_total(self, use_cache=True):
         """Retrieve total bytes (rx an tx) from ASUSWRT."""
