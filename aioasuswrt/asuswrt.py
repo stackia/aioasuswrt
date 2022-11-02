@@ -569,7 +569,10 @@ class AsusWrt:
                 continue
             cmd_result = await self.connection.async_run_command(self._temps_commands[i]["cmd"])
             result[i] = cmd_result[0].split(" ")[self._temps_commands[i]["result_loc"]]
-            result[i] = eval("float(" + result[i] + ")" + self._temps_commands[i]["eval"])
+            try:
+                result[i] = eval("float(" + result[i] + ")" + self._temps_commands[i]["eval"])
+            except SyntaxError:
+                pass
         return dict(zip(["2.4GHz", "5.0GHz", "CPU"], result))
 
     @property
