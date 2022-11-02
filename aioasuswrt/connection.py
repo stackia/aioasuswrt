@@ -131,12 +131,12 @@ class TelnetConnection:
             return await self.async_run_command(command, False)
 
         # Let's process the received data
-        data = data.split(b"\n")
+        data = data[0:-(len(self._prompt_string))].split(b"\n")
         # Let's find the number of elements the cmd takes
         cmd_len = len(self._prompt_string) + len(full_cmd)
         # We have to do floor + 1 to handle the infinite case correct
         start_split = floor(cmd_len / self._linebreak) + 1
-        data = data[start_split:-1]
+        data = data[start_split:]
         return [line.decode("utf-8", "ignore") for line in data]
 
     async def async_connect(self):
@@ -146,7 +146,7 @@ class TelnetConnection:
 
     async def _async_connect(self):
         self._reader, self._writer = await asyncio.open_connection(
-            self._host, self._port
+            self._host, self._port, limit=512*1024
         )
 
         # Process the login
